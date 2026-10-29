@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  YOUTH
+  SUPERVISOR
+  ADMIN
+}
+
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  fullName  String
+  phone     String?
+  role      Role     @default(YOUTH)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  supervisedPrograms Program[]      @relation("ProgramSupervisor")
+  applications       Application[]
+  announcements      Announcement[]
+  refreshTokens      RefreshToken[]
+
+  @@index([role])
+}
+
+model Program {
+  id             Int      @id @default(autoincrement())
+  title          String
+  description    String   @db.Text
+  imageUrl       String?
+  totalSeats     Int
+  availableSeats Int
+  supervisorId   Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  supervisor    User           @relation("ProgramSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  sessions      Session[]
+  materials     Material[]
+  applications  Application[]
+  announcements Announcement[]
+
+  @@index([supervisorId])
+  @@index([title])
+  @@index([createdAt])
+}
+
+model Session {
+  id        Int      @id @default(autoincrement())
+  programId Int
+  date      DateTime @db.Date
+  startTime String // "HH:mm"
+  endTime   String? // "HH:mm"
+  location  String // physical place or online meeting link
+  createdAt DateTime @default(now())
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@index([programId, date])
+}
+
+model Material {
+  id           Int      @id @default(autoincrement())
+  programId    Int
+  title        String
+  filePath     String // path only, never the file itself
+  originalName String
+  size         Int
+  createdAt    DateTime @default(now())
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@index([programId])
+}
+
+// Explicit join table: the Many-to-Many between User (youth) and Program
+model Application {
+  id        Int               @id @default(autoincrement())
+  userId    Int
+  programId Int
+  status    ApplicationStatus @default(PENDING)
+  cvPath    String?
+  note      String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, programId])
+  @@index([programId, status])
+  @@index([userId, status])
+  @@index([status])
+}
+
+model Announcement {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String   @db.Text
+  authorId  Int
+  programId Int? // null = public announcement for all youth
+  createdAt DateTime @default(now())
+
+  author  User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  program Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@index([programId, createdAt])
+  @@index([createdAt])
+}
+
+// Refresh tokens are stored hashed (sha256) and rotated on every use.
+model RefreshToken {
+  id        String    @id // equals the "jti" claim inside the refresh JWT
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
